@@ -426,8 +426,9 @@ ip_process(void* hdr, uint16_t* dp, uint32_t flags, struct lcore_conf* qconf)
 		struct ipv4_hdr* ipv4_hdr = (struct ipv4_hdr*)hdr;
 		ihl = ipv4_hdr->version_ihl - IPV4_MIN_VER_IHL;
 
-		ipv4_hdr->time_to_live--;
-		ipv4_hdr->hdr_checksum++;
+// Disabled because breaking packet (at least packets to kni)
+//		ipv4_hdr->time_to_live--;
+//		ipv4_hdr->hdr_checksum++;
 
 		if (ihl > IPV4_MAX_VER_IHL_DIFF ||
 		    ipv4_hdr->total_length < IPV4_MIN_LEN_BE ||
@@ -811,9 +812,14 @@ processx4_step_checkneighbor(struct lcore_conf* qconf,
 				continue;
 
 			for (k = 0; k < nb_kni; k++) {
-				int l = 0;
-				for (; l < i; ++l)
-					rte_vlan_insert(knimbuf + l);
+
+////////////////////////////////////
+//				int l = 0;
+//				Disabled.
+//				Adds unnecessary vlan tag with id 0, so packet becomes double tagged.
+//				for (; l < i; ++l)
+//					rte_vlan_insert(knimbuf + l);
+///////////////////////////////////
 				rte_spinlock_lock(&spinlock_kni[portid]);
 				num = rte_kni_tx_burst(p->kni[k], knimbuf, i);
 				rte_spinlock_unlock(&spinlock_kni[portid]);

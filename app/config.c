@@ -715,8 +715,39 @@ install_cfgfile(const char* file_name, char* prgname)
 			return -1;
 		}
 
-		enabled_port_mask |= (1 << i);
 
+		if (ret) {
+			RTE_LOG(ERR, PKTJ1, "invalid config\n");
+			print_usage(prgname);
+			return -1;
+		}
+
+		entry = rte_cfgfile_get_entry(file, section_name, "kni");
+		if (!entry) {
+			RTE_LOG(ERR, PKTJ1, "Config file parse error: KNI core queues for port %u not defined\n",
+			i);
+			continue;
+		}
+
+		ptr = strdup(entry);
+		if (!ptr) {
+			rte_exit(EXIT_FAILURE,
+				 "Config file parse error: Could "
+				 "not allocate memory for "
+				 "strdup\n");
+			return -1;
+		}
+		ret = kni_parse_config_from_file(i, ptr);
+		free(ptr);
+
+		if (ret) {
+			RTE_LOG(ERR, PKTJ1, "Invalid config\n");
+			print_usage(prgname);
+			return -1;
+		}
+		
+		enabled_port_mask |= (1 << i);
+		
 		entry = rte_cfgfile_get_entry(file, section_name, "eal queues");
 		if (!entry) {
 			rte_exit(
@@ -737,39 +768,14 @@ install_cfgfile(const char* file_name, char* prgname)
 		}
 		ret = parse_config_from_file(i, ptr);
 		free(ptr);
-
+		
 		if (ret) {
 			RTE_LOG(ERR, PKTJ1, "invalid config\n");
 			print_usage(prgname);
 			return -1;
 		}
 
-		entry = rte_cfgfile_get_entry(file, section_name, "kni");
-		if (!entry) {
-			rte_exit(EXIT_FAILURE,
-				 "Config file parse error: KNI "
-				 "core queues for port %u "
-				 "not defined\n",
-				 i);
-			return -1;
-		}
 
-		ptr = strdup(entry);
-		if (!ptr) {
-			rte_exit(EXIT_FAILURE,
-				 "Config file parse error: Could "
-				 "not allocate memory for "
-				 "strdup\n");
-			return -1;
-		}
-		ret = kni_parse_config_from_file(i, ptr);
-		free(ptr);
-
-		if (ret) {
-			RTE_LOG(ERR, PKTJ1, "Invalid config\n");
-			print_usage(prgname);
-			return -1;
-		}
 	}
 
 	entry = rte_cfgfile_get_entry(file, FILE_MAIN_CONFIG,
