@@ -10,7 +10,7 @@ export BUILD_TARGET
 # by default we build in build/
 O ?= $(RTE_SRCDIR)/build
 
-EXTRA_CFLAGS +=  -W -Wall -g3 -gdwarf-2 -O3 -include $(RTE_SDK)/$(RTE_TARGET)/include/rte_config.h
+EXTRA_CFLAGS +=  -W -Wall -g3 -gdwarf-2 -O3 -include $(RTE_SDK)/$(RTE_TARGET)/include/rte_config.h -lmnl
 
 ifeq ($(BUILD_TARGET),qemu)
 EXTRA_CFLAGS +=  -DPKTJ_DEBUG -DPKTJ_QEMU -DL3FWDACL_DEBUG -DRTE_LOG_LEVEL=8

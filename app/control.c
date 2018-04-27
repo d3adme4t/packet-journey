@@ -179,15 +179,17 @@ route4(__rte_unused struct rtmsg* route,
 	int32_t socket_id = handle->socket_id;
 	struct in_addr blackhole_addr4 = {rte_be_to_cpu_32(INADDR_ANY)};
 	char buf[INET6_ADDRSTRLEN];
+	char buf2[INET6_ADDRSTRLEN];
 
 	if (type == RTN_BLACKHOLE) {
 		nexthop = &blackhole_addr4;
 	}
 
 	if (action == ROUTE_ADD) {
-		RTE_LOG(INFO, PKTJ_CTRL1, "adding an ipv4 route %s with hop %s type %d\n",
+		RTE_LOG(INFO, PKTJ_CTRL1, "adding an ipv4 route %s/%d with nexthop %s type %d\n",
 			inet_ntop(AF_INET, addr, buf, INET6_ADDRSTRLEN),
-			inet_ntop(AF_INET, nexthop, buf, INET6_ADDRSTRLEN),
+			depth,
+			inet_ntop(AF_INET, nexthop, buf2, INET6_ADDRSTRLEN),
 			type);
 		// lookup nexthop
 		s = neighbor4_lookup_nexthop(neighbor4_struct[socket_id],
@@ -221,9 +223,10 @@ route4(__rte_unused struct rtmsg* route,
 	}
 
 	if (action == ROUTE_DELETE) {
-		RTE_LOG(INFO, PKTJ_CTRL1, "deleting an ipv4 route %s with hop %s type %d\n",
+		RTE_LOG(INFO, PKTJ_CTRL1, "deleting an ipv4 route %s/%u with hop %s type %d\n",
 			inet_ntop(AF_INET, addr, buf, INET6_ADDRSTRLEN),
-			inet_ntop(AF_INET, nexthop, buf, INET6_ADDRSTRLEN),
+			depth,
+			inet_ntop(AF_INET, nexthop, buf2, INET6_ADDRSTRLEN),
 			type);
 		// lookup nexthop
 		s = neighbor4_lookup_nexthop(neighbor4_struct[socket_id],
@@ -820,7 +823,7 @@ add_invalid_neighbor6(neighbor_struct_t* neighbor_struct,
 static void
 netl_log(const char *msg, uint32_t lvl)
 {
-	rte_log(lvl, RTE_LOGTYPE_PKTJ_CTRL1, "PKTJ_CRTL1: %s\n", msg);
+	rte_log(lvl, RTE_LOGTYPE_PKTJ_CTRL1, "PKTJ_CTRL1: %s\n", msg);
 }
 
 void *

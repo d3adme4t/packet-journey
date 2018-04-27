@@ -244,6 +244,7 @@ netl_handler(struct netl_handle *h,
 				if (h->cb.route4 != NULL) {
 					h->cb.route4(r, action, RTA_DATA(tb[RTA_DST]),
 								 r->rtm_dst_len, RTA_DATA(tb[RTA_GATEWAY]),
+//								 r->rtm_dst_len, mnl_attr_get_payload(tb[RTA_GATEWAY]),
 								 r->rtm_type, args);
 				}
 				break;
