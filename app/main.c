@@ -168,6 +168,7 @@ struct control_params_t control_handle6[NB_SOCKETS];
 #define PKTJ_TEST_IPV4_HDR(m) RTE_ETH_IS_IPV4_HDR((m)->packet_type)
 #define PKTJ_TEST_IPV6_HDR(m) RTE_ETH_IS_IPV6_HDR((m)->packet_type)
 #define PKTJ_TEST_ARP_HDR(m) ((m)->packet_type & RTE_PTYPE_L2_ETHER_ARP)
+#define PKTJ_TEST_VLAN_HDR(m) ((m)->packet_type & RTE_PTYPE_L2_ETHER_ARP)
 
 #ifdef PKTJ_QEMU
 #define pktj_mm_load_si128 _mm_loadu_si128
@@ -387,12 +388,16 @@ get_ipv4_dst_port(void *ipv4_hdr, uint8_t portid,
 		  lookup_struct_t *ipv4_pktj_lookup_struct)
 {
 	uint32_t next_hop;
-
+//	struct in_addr daddr;
+//
+//    daddr.s_addr = ((struct ipv4_hdr*)ipv4_hdr)->src_addr;
+//    printf ("src_ip:%s\n", inet_ntoa(daddr));
+//
+//	daddr.s_addr = ((struct ipv4_hdr*)ipv4_hdr)->dst_addr;
+//    printf ("dst_ip:%s\n", inet_ntoa(daddr));
+//    printf ("ENOENT is:%i\nlpm_lookup is:%i\n",ENOENT,rte_lpm_lookup(ipv4_pktj_lookup_struct,rte_be_to_cpu_32(((struct ipv4_hdr*)ipv4_hdr)->dst_addr),&next_hop));
 	return
-	    (rte_lpm_lookup(
-		 ipv4_pktj_lookup_struct,
-		 rte_be_to_cpu_32(((struct ipv4_hdr*)ipv4_hdr)->dst_addr),
-		 &next_hop) == 0)
+	    (rte_lpm_lookup(ipv4_pktj_lookup_struct,rte_be_to_cpu_32(((struct ipv4_hdr*)ipv4_hdr)->dst_addr),&next_hop) == 0)
 		? next_hop
 		: portid;
 }
@@ -425,10 +430,8 @@ ip_process(void* hdr, uint16_t* dp, uint32_t flags, struct lcore_conf* qconf)
 		uint8_t ihl;
 		struct ipv4_hdr* ipv4_hdr = (struct ipv4_hdr*)hdr;
 		ihl = ipv4_hdr->version_ihl - IPV4_MIN_VER_IHL;
-
-// Disabled because breaking packet (at least packets to kni)
-//		ipv4_hdr->time_to_live--;
-//		ipv4_hdr->hdr_checksum++;
+		ipv4_hdr->time_to_live--;
+		ipv4_hdr->hdr_checksum++;
 
 		if (ihl > IPV4_MAX_VER_IHL_DIFF ||
 		    ipv4_hdr->total_length < IPV4_MIN_LEN_BE ||
@@ -492,8 +495,14 @@ process_step2(struct lcore_conf* qconf,
 	uint16_t dp;
 	struct ipv4_hdr* ipv4_hdr;
 	struct ipv6_hdr* ipv6_hdr;
+	size_t vlan_offset=0;
 
-	eth_hdr = rte_pktmbuf_mtod(pkt, struct ether_hdr*);
+	if (PKTJ_TEST_VLAN_HDR(pkt))
+	{
+        vlan_offset = sizeof(struct vlan_hdr);
+	}
+
+	eth_hdr = rte_pktmbuf_mtod_offset(pkt, struct ether_hdr*,vlan_offset);
 
 	if (likely(PKTJ_TEST_IPV4_HDR(pkt))) {
 		ipv4_hdr = (struct ipv4_hdr*)(eth_hdr + 1);
@@ -561,7 +570,8 @@ kni_rate_limit_step(struct lcore_conf* qconf, struct rte_mbuf* pkt)
 static inline int
 rate_limit_step_ipv4(struct lcore_conf* qconf,
 		     struct rte_mbuf* pkt,
-		     unsigned lcore_id)
+		     unsigned lcore_id,
+		     size_t vlan_offset)
 {
 	struct ipv4_hdr* ipv4_hdr;
 	uint8_t range_id;
@@ -569,7 +579,7 @@ rate_limit_step_ipv4(struct lcore_conf* qconf,
 	uint32_t naddr;
 
 	ipv4_hdr = rte_pktmbuf_mtod_offset(pkt, struct ipv4_hdr*,
-					   sizeof(struct ether_hdr));
+					   sizeof(struct ether_hdr)+vlan_offset);
 	naddr = rte_be_to_cpu_32(ipv4_hdr->dst_addr);
 	dst_addr = (union rlimit_addr *)&naddr;
 	range_id = rlimit4_lookup_table[rte_lcore_to_socket_id(lcore_id)]
@@ -696,11 +706,18 @@ processx4_step_checkneighbor(struct lcore_conf* qconf,
 	struct kni_port_params* p;
 	uint8_t process, action, is_ipv4;
 	uint16_t vlan_tci;
+	size_t vlan_offset[FWDSTEP];
+	struct vlan_hdr *vh[FWDSTEP];
 
 	p = kni_port_params_array[portid];
 	nb_kni = p->nb_kni;
 
-#define PROCESSX4_STEP(step)                                                   \
+#define PROCESSX4_STEP(step)                                                \
+	vlan_offset[step] = 0;                                                  \
+	if (PKTJ_TEST_VLAN_HDR(pkt[j]))                                         \
+	{                                                                       \
+        vlan_offset[step] = sizeof(struct vlan_hdr);                        \
+	}                                                                       \
 	if (likely(PKTJ_TEST_IPV4_HDR(pkt[j]))) {                              \
 		is_ipv4 = 1;                                                   \
 		action = qconf->neighbor4_struct->entries.t4[dst_port[j]]      \
@@ -728,15 +745,15 @@ processx4_step_checkneighbor(struct lcore_conf* qconf,
 		    DEBUG, PKTJ1,                                              \
 		    #step ": j %d process %d olflags%lx eth_type %x\n", j,     \
 		    process, pkt[j]->ol_flags,                                 \
-		    rte_pktmbuf_mtod(pkt[j], struct ether_hdr*)->ether_type);  \
-	}                                                                      \
-	process +=                                                             \
+		    rte_pktmbuf_mtod_offset(pkt[j], struct ether_hdr*,vlan_offset[step])->ether_type);  \
+	}                                                                   \
+		process +=                                                             \
 	    process == 0                                                       \
 		? ip_process(                                                  \
 		      rte_pktmbuf_mtod_offset(pkt[j], struct ether_hdr*,       \
-					      sizeof(struct ether_hdr)),       \
+					      sizeof(struct ether_hdr) + vlan_offset[step]),       \
 		      &dst_port[j], PKTJ_PKT_TYPE(pkt[j]), qconf)              \
-		: 0;                                                           \
+		: 0;    \
 	if (process) {                                                         \
 		/* test if we need to rate-limit that packet before sending it \
 		 * to kni */                                                   \
@@ -762,7 +779,7 @@ processx4_step_checkneighbor(struct lcore_conf* qconf,
 		 * sent to the kni */                                          \
 		if (is_ipv4) {                                                 \
 			process =                                              \
-			    rate_limit_step_ipv4(qconf, pkt[j], lcore_id);     \
+			    rate_limit_step_ipv4(qconf, pkt[j], lcore_id,vlan_offset[step]);     \
 			vlan_tci =                                             \
 			    qconf->neighbor4_struct->entries.t4[dst_port[j]]   \
 				.neighbor.vlan_id;                             \
@@ -784,9 +801,17 @@ processx4_step_checkneighbor(struct lcore_conf* qconf,
 				dst_port[j] = dst_port[nb_rx];                 \
 			}                                                      \
 		} else {                                                       \
+            if (vlan_offset[step]==0)                                      \
+            {                                                       \
 			pkt[j]->vlan_tci = vlan_tci;                           \
 			pkt[j]->ol_flags |= PKT_TX_VLAN_PKT;                   \
-			RTE_LOG(DEBUG, PKTJ1, #step ": olflags%lx vlan%d\n",   \
+			}                                                       \
+			else                                                   \
+			{                                                       \
+			vh[step]= (struct vlan_hdr *)(rte_pktmbuf_mtod(pkt[j], struct ether_hdr*)+1); \
+            vh[step]->vlan_tci = rte_cpu_to_be_16(vlan_tci);                                                       \
+			}                                                                        \
+            RTE_LOG(DEBUG, PKTJ1, #step ": olflags%lx vlan%d\n",   \
 				pkt[j]->ol_flags, vlan_tci);                   \
 			j++;                                                   \
 		}                                                              \

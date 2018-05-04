@@ -63,3 +63,9 @@ ip link set $link5.229 up
 #ip route add 1.2.4.0/24 via 1.2.3.4
 #ip addr add 2001:3::5/48 dev $link.2000
 #ip route add 2001:4::/48 via 2001:3::4
+
+
+ip r a 95.154.112.0/25 via 10.254.186.41
+ip r a default via 10.254.191.1
+sysctl net.ipv4.conf.dpdk4/229.forwarding=1
+sysctl net.ipv4.conf.dpdk4/698.forwarding=1
